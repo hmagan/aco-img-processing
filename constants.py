@@ -1,1 +1,10 @@
-total_iterations = 256
+N = 10 # global iterations
+L = 50 # construction iterations
+A = 1 # controls pheromone influence
+B = 1 # controls heuristic influence
+PHI = 0.05 # pheromone decay coefficient
+T_init = 0.1 # initial pheromone value
+p = 0.1 # evaporation rate
+threshold = 0.2 # threshold of which the Otsu technique is based
+q0 = 0.6 # determines which probability rule is used
+mem = 20 # memory length in the ants

@@ -1,5 +1,7 @@
+import aco
+
 def main():
-    print('wow')
+    aco.run('images_to_process/man.jpg')
 
 if __name__ == '__main__':
     main()
