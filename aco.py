@@ -1,128 +1,152 @@
 import numpy as np
 import constants as c
 import random as r
+import operator
+import copy
 from PIL import Image, ImageEnhance
 from ant import Ant
-import methods as m
 
-def run(image_path): 
-    I = Image.open(image_path) # I is the image to process converted to grayscale
-    contrast = ImageEnhance.Contrast(I)
-    I = contrast.enhance(1.5).convert('LA')
-    I.save('saved_images/test.png')
+def is_valid(i, j, n, m):
+    return (i >= 0 and i < m and j >= 0 and j < n)
 
+# returns the variation of intensity values around the pixel i, j
+# V(I(i, j)) = |I(i-1, j-1) - I(i+1, j+1)| + |I(i-1, j) - I(i+1, j)| + |I(i-1, j+1) - I(i+1, j-1)| + |I(i, j-1) - I(i, j+1)|
+# maybe tweak with f(.)
+def V(img, coords):
+    i = coords[0]
+    j = coords[1]
+    dx = [[-1, 1], [-1, 1], [-1, 1], [0, 0]]
+    dy = [[-1, 1], [0, 0], [1, -1], [-1, 1]]
+    total = 0
+    for k in range(4):
+        i1 = i + dx[k][0]
+        i2 = i + dx[k][1]
+        j1 = j + dy[k][0]
+        j2 = j + dy[k][1]
+        if is_valid(i1, j1, img.width, img.height) and is_valid(i2, j2, img.width, img.height):
+            # print(i1, ', ', j1, '  ', i2, ', ', j2)
+            total += abs(img.getpixel((j1, i1))[0] - img.getpixel((j2, i2))[0])
+    return total
+
+# ant system; corresponds to methods developed by Dorigo et al., with a few tweaks made specifically for edge detection
+def AS(image_path): 
+    I = Image.open(image_path).convert('LA') # I is the image to process converted to grayscale
     M1 = I.width
     M2 = I.height
+
+    # find contrast factor
+    I_copy = copy.deepcopy(I)
+    contrast = ImageEnhance.Contrast(I)
+    c_factor = 1.0
+    last_intensities = [-1.0] * M1
+    variation = True
+    mid = int(M2 / 2)
+    while(variation):
+        c_factor += 1.0
+        I_copy = contrast.enhance(c_factor)
+        variation = False
+        for i in range(M1): 
+            if I_copy.getpixel((i, mid)) != last_intensities[i]: 
+                variation = True
+            last_intensities[i] = I_copy.getpixel((i, mid))
+    print('contrast factor: ', c_factor - 2.0)
+    I = contrast.enhance(c_factor - 2.0)
+    # I.show()
+    name = image_path.split('/')[1].split('.')[0]
+    I.save('saved_images/' + name + '1.png')
 
     T = [[c.T_init for i in range(M1)] for j in range(M2)] # pheromone matrix
     N = [[0 for i in range(M1)] for j in range(M2)] # heuristic matrix
 
-    V_low = 9999 # arbitrarily high number
-    V_high = 0
-
     # set up the heuristic matrix
+    Z = 0.0 # normalization factor
     for i in range(M2):
         for j in range(M1):
-            N[i][j] = m.Vc(I, (i, j))
-            if N[i][j] < V_low: 
-                V_low = N[i][j]
-            if N[i][j] > V_high: 
-                V_high = N[i][j]
-    V_max = V_high - V_low # max intensity variation
-
+            N[i][j] = V(I, (i, j))
+            if N[i][j] == 0:
+                N[i][j] += 0.00001
+            Z += N[i][j]
+          
     for i in range(M2):
         for j in range(M1):
-            N[i][j] /= V_max # complete the heuristic matrix; N(i, j) = Vc(I(i, j)) / V_max
+            N[i][j] /= Z # complete the heuristic matrix; N(i, j) = Vc(I(i, j)) / Z
             
-    K = int(np.sqrt(M1 * M2)) # K is the number of ants; K = (M1 * M2)^1/2
-
-    ants = [Ant(r.randrange(0, M1), r.randrange(0, M2)) for i in range(K)]
+    K = M1 * M2 # K is the number of ants; place one at each vertex; other method is randomly distributed & K = (M1 * M2)^1/2
+    ants = []
+    for i in range(M2):
+        for j in range(M1):
+            ants.append(Ant(i, j))
 
     dx = [-1, -1, -1, 0, 0, 1, 1, 1]
     dy = [-1, 0, 1, -1, 1, -1, 0, 1]
 
-    def is_valid(i, j):
-        return (i >= 0 and i < M1 and j >= 0 and j < M2)
-
     for i in range(c.N):
-        visited = [[set() for i in range(M1)] for j in range(M2)] # keep track of what ants visited each vertex
-        vertices_to_update = set() # keep track of what pixels got updated so we don't have to iterate through all M1 x M2 vertices
-        for j in range(c.L):
-            for ant in ants: 
-                x, y = 0, 0 # i, j
-                OMEGA = 0 # sum of neighborhood pixels
-                # check to see what method to use (randomly)
-                q = r.random()
-                if q <= c.q0:
-                    # maximize T[x][y] * N[x][y] ** c.B
-                    P = 0
-                    for k in range(8): 
-                        px = ant.x + dx[k]
-                        py = ant.y + dy[k]
-                        if is_valid(px, py) and not (px, py) in ant.recently_visited:
-                            p = T[py][px] * (N[py][px] ** c.B)
-                            if p > P:
-                                P = p
-                                x, y = px, py
-                else:
-                    # loop first to find omega, and then to check all neighborhood pixels
-                    for k in range(8): 
-                        px = ant.x + dx[k]
-                        py = ant.y + dy[k]
-                        if is_valid(px, py):
-                            OMEGA += I.getpixel((px, py))[0]
-                    poss_vertices = []
-                    weights = []
-                    cum_weight = []
-                    for k in range(8): 
-                        px = ant.x + dx[k]
-                        py = ant.y + dy[k]
-                        if is_valid(px, py) and not (px, py) in ant.recently_visited:
-                            pheromone_value = T[py][px] ** c.A
-                            heuristic_value = N[py][px] ** c.B
-                            p = 0
-                            if pheromone_value != 0 and heuristic_value != 0 and OMEGA != 0:
-                                p = (pheromone_value * heuristic_value) / (OMEGA * pheromone_value * heuristic_value) # equation for probability
-                            poss_vertices.append((px, py))
-                            weights.append(p)
-                            if(len(weights) == 1):
-                                cum_weight.append(p)
-                            else: 
-                                cum_weight.append(cum_weight[-1]+p)
-                            print(px, ', ', py, ' poss with a weight of ', p)
-                    result = (ant.x, ant.y)
-                    if len(cum_weight) > 0:
-                        result = r.choices(poss_vertices, cum_weights=cum_weight, k=1)[0]
-                    print('chosen: ', result)
-                    x, y = result[0], result[1]
-                ant.x = x
-                ant.y = y
-                ant.recently_visited.pop()
-                ant.recently_visited.appendleft((x, y))
-                T[y][x] = ((1 - c.PHI) * T[y][x]) + (c.PHI * c.T_init) # local pheromone update
-                ant.total += N[y][x]
-                ant.num += 1
-                visited[y][x].add(ant)
-                vertices_to_update.add((y, x))
-        # global pheromone update
-        for coords in vertices_to_update: 
-            x = coords[0]
-            y = coords[1]
-            dT = 0 # find sum of pheromones deposited by the each ant at pixel x, y
-            for ant in visited[x][y]:
-                dT += ant.get_average() # returns average of heuristic information on the specific ant's tour
-            T[x][y] = ((1 - c.p) * T[x][y]) + (c.p * dT)
-
+        # for each ant, calculate P for each pixel in the 8-connected neighborhood and choose a random one according to P
+        for ant in ants: 
+            P_list = []
+            edges = []
+            denom = 0.0 # normalizer
+            for j in range(8): # 8 because 8-connected neighborhood
+                x, y = ant.x + dx[j], ant.y + dy[j]
+                if is_valid(y, x, M1, M2):
+                    num = (T[y][x] ** c.A) * (N[y][x] ** c.B)
+                    # print((T[ant.y][ant.x] ** c.A), ' x ', (N[ant.y][ant.x] ** c.B))
+                    P_list.append(num)
+                    edges.append((x, y))
+                    denom += num
+            for j in range(len(P_list)): # 8 because 8-connected neighborhood
+                P_list[j] /= denom
+            if(len(edges) > 0):  
+                edge = r.choices(edges, weights=P_list, k=1)[0]
+                x, y = edge[0], edge[1]
+                T[y][x] = (1 - c.p) * T[y][x] + c.p * N[y][x]
+        # global pheromone update 
+        for j in range(M2): 
+            for k in range(M1): 
+                T[j][k] = (1 - c.PHI) * T[j][k] + c.PHI * c.T_init
 
     new_image = Image.new('RGB', (M1, M2))
-    # display the pixels of the image which have a pheromone level above the threshold
+    threshold = sum(T[mid]) / len(T[mid]) # guesstimate of the threshold of which the Otsu technique is based
+    print(threshold)
+    last_t = 1
+    G1 = []
+    G2 = []
     for i in range(M2): 
         for j in range(M1): 
-            print(i, ', ', j)
-            if T[i][j] >= c.threshold:
-                new_image.putpixel((j, i), (0, 0, 0))
+            if T[i][j] >= threshold: 
+                G1.append((T[i][j], i, j))
             else: 
-                new_image.putpixel((j, i), (255, 255, 255))
+                G2.append((T[i][j], i, j))
+    s1 = sum(num[0] for num in G1)
+    l1 = len(G1)
+    s2 = sum(num[0] for num in G2)
+    l2 = len(G2)
+    mu1 = s1 / l1
+    mu2 = s2 / l2
+    last_t = threshold
+    threshold = (mu1 + mu2) / 2
+    G1.sort(key=operator.itemgetter(0))
+    G2.sort(key=operator.itemgetter(0))
+    # iteratively calculate the threshold using the equation T = (mu1 + mu2) / 2
+    while abs(last_t - threshold) > c.epsilon: 
+        while G2[-1] > threshold: 
+            s1 += G2[-1][0]
+            l1 += 1
+            s2 -= G2[-1][0]
+            l2 -= 1
+            G1.insert(G2.pop(), 0)
+        mu1 = s1 / l1
+        mu2 = s2 / l2
+        last_t = threshold
+        threshold = (mu1 + mu2) / 2
+    print('t:', threshold)
+
+    # display the pixels of the image which have a pheromone level above the calculated threshold
+    for px in G1: 
+        new_image.putpixel((px[2], px[1]), (0, 0, 0))
+    print(len(G1), 'good ones')
+    for px in G2: 
+        new_image.putpixel((px[2], px[1]), (255, 255, 255))
 
     # new_image.save('saved_images/test.png')
     new_image.show()
