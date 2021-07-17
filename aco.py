@@ -49,8 +49,8 @@ def AS(image_path):
             if I_copy.getpixel((i, mid)) != last_intensities[i]: 
                 variation = True
             last_intensities[i] = I_copy.getpixel((i, mid))
-    print('contrast factor: ', c_factor - 2.0)
-    I = contrast.enhance(c_factor - 2.0)
+    # print('contrast factor: ', c_factor - 2.0)
+    # I = contrast.enhance(c_factor - 2.0)
     # I.show()
     name = image_path.split('/')[1].split('.')[0]
     I.save('saved_images/' + name + '1.png')
@@ -67,15 +67,26 @@ def AS(image_path):
                 N[i][j] += 0.00001
             Z += N[i][j]
           
+    N_sorted = [] # construct sorted 1D array of N for ant placement
     for i in range(M2):
         for j in range(M1):
             N[i][j] /= Z # complete the heuristic matrix; N(i, j) = Vc(I(i, j)) / Z
-            
-    K = M1 * M2 # K is the number of ants; place one at each vertex; other method is randomly distributed & K = (M1 * M2)^1/2
+            N_sorted.append((N[i][j], j, i))
+
+    N_sorted.sort(reverse=True, key=operator.itemgetter(0))
+    print(N_sorted[0], 'vs', N_sorted[-1])
     ants = []
-    for i in range(M2):
-        for j in range(M1):
-            ants.append(Ant(i, j))
+            
+    K = int(np.sqrt(M1 * M2))
+    idx = 0
+    while idx < K: 
+        ants.append(Ant(N_sorted[idx][1], N_sorted[idx][2]))
+        idx += 1
+
+    # K = M1 * M2
+    # for i in range(M2):
+    #     for j in range(M1):
+    #         ants.append(Ant(i, j))
 
     dx = [-1, -1, -1, 0, 0, 1, 1, 1]
     dy = [-1, 0, 1, -1, 1, -1, 0, 1]
@@ -88,7 +99,7 @@ def AS(image_path):
             denom = 0.0 # normalizer
             for j in range(8): # 8 because 8-connected neighborhood
                 x, y = ant.x + dx[j], ant.y + dy[j]
-                if is_valid(y, x, M1, M2):
+                if not (x, y) in ant.recently_visited and is_valid(y, x, M1, M2):
                     num = (T[y][x] ** c.A) * (N[y][x] ** c.B)
                     # print((T[ant.y][ant.x] ** c.A), ' x ', (N[ant.y][ant.x] ** c.B))
                     P_list.append(num)
@@ -100,12 +111,12 @@ def AS(image_path):
                 edge = r.choices(edges, weights=P_list, k=1)[0]
                 x, y = edge[0], edge[1]
                 T[y][x] = (1 - c.p) * T[y][x] + c.p * N[y][x]
+                ant.add_vertex((x, y))
         # global pheromone update 
         for j in range(M2): 
             for k in range(M1): 
                 T[j][k] = (1 - c.PHI) * T[j][k] + c.PHI * c.T_init
 
-    new_image = Image.new('RGB', (M1, M2))
     threshold = sum(T[mid]) / len(T[mid]) # guesstimate of the threshold of which the Otsu technique is based
     print(threshold)
     last_t = 1
@@ -141,6 +152,7 @@ def AS(image_path):
         threshold = (mu1 + mu2) / 2
     print('t:', threshold)
 
+    new_image = Image.new('RGB', (M1, M2))
     # display the pixels of the image which have a pheromone level above the calculated threshold
     for px in G1: 
         new_image.putpixel((px[2], px[1]), (0, 0, 0))
@@ -148,5 +160,5 @@ def AS(image_path):
     for px in G2: 
         new_image.putpixel((px[2], px[1]), (255, 255, 255))
 
-    # new_image.save('saved_images/test.png')
+    new_image.save('saved_images/' + name + '_e2.png')
     new_image.show()
