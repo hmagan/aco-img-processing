@@ -26,7 +26,7 @@ def V(img, coords):
 
 # ant system; corresponds to methods developed by Dorigo et al., with a few tweaks made specifically for edge detection
 def AS(image_path): 
-    I = Image.open(image_path).convert('LA') # I is the image to process converted to grayscale
+    I = Image.open(image_path).convert('LA')
     M1 = I.width
     M2 = I.height
 
@@ -84,7 +84,7 @@ def AS(image_path):
         # global pheromone update 
         for j in range(M2): 
             for k in range(M1): 
-                T[j][k] = (1 - c.PHI) * T[j][k] + c.PHI * c.T_init
+                T[j][k] = (1 - c.PSI) * T[j][k] + c.PSI * c.T_init
 
     new_image = Image.new('RGB', (M1, M2))
    
@@ -100,5 +100,5 @@ def AS(image_path):
         else: 
             new_image.putpixel((sorted_T[i][2], sorted_T[i][1]), (255, 255, 255))
 
-    new_image.save('saved_images/saved.png')
+    new_image.save('saved_images/lena_aco.png')
     new_image.show()
